@@ -1,0 +1,1553 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SuperKiwi SDK Demo</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      min-height: 100vh;
+      color: #fff;
+      padding: 20px;
+    }
+
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+
+    header h1 {
+      font-size: 1.8rem;
+      margin-bottom: 8px;
+      background: linear-gradient(90deg, #00d9ff, #00ff88);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    header p {
+      color: #888;
+      font-size: 0.9rem;
+    }
+
+    .main-content {
+      display: grid;
+      grid-template-columns: 400px 1fr;
+      gap: 20px;
+    }
+
+    @media (max-width: 1000px) {
+      .main-content {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .video-section {
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 12px;
+      padding: 15px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .video-container {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 4/3;
+      background: #000;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    #video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transform: scaleX(-1);
+    }
+
+    #canvas-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      transform: scaleX(-1);
+    }
+
+    .status-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 10px;
+      padding: 8px 12px;
+      background: rgba(0, 0, 0, 0.3);
+      border-radius: 6px;
+      font-size: 0.85rem;
+    }
+
+    .status-indicator {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #ff4444;
+    }
+
+    .status-dot.active {
+      background: #00ff88;
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    .controls {
+      display: flex;
+      gap: 10px;
+      margin-top: 10px;
+    }
+
+    button {
+      flex: 1;
+      padding: 10px 16px;
+      border: none;
+      border-radius: 6px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s ease;
+    }
+
+    #startBtn {
+      background: linear-gradient(90deg, #00d9ff, #00ff88);
+      color: #1a1a2e;
+    }
+
+    #startBtn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 5px 20px rgba(0, 217, 255, 0.4);
+    }
+
+    #startBtn:disabled {
+      background: #444;
+      color: #888;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
+
+    #resetBtn {
+      background: rgba(255, 255, 255, 0.1);
+      color: #fff;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+
+    #pipBtn {
+      background: linear-gradient(90deg, #ff6b6b, #ffa502);
+      color: #fff;
+    }
+
+    #pipBtn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 5px 20px rgba(255, 107, 107, 0.4);
+    }
+
+    #pipBtn.active {
+      background: linear-gradient(90deg, #ff4757, #ff6348);
+    }
+
+    #pipBtn:disabled {
+      background: #444;
+      color: #888;
+      cursor: not-allowed;
+    }
+
+    .pip-notice {
+      margin-top: 10px;
+      padding: 8px 12px;
+      background: rgba(255, 165, 2, 0.15);
+      border: 1px solid rgba(255, 165, 2, 0.3);
+      border-radius: 6px;
+      font-size: 0.8rem;
+      color: #ffa502;
+      display: none;
+    }
+
+    .pip-notice.visible {
+      display: block;
+    }
+
+    .metrics-section {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 15px;
+    }
+
+    @media (max-width: 1200px) {
+      .metrics-section {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+
+    .metric-card {
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 12px;
+      padding: 15px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .metric-card h3 {
+      font-size: 0.75rem;
+      color: #00d9ff;
+      margin-bottom: 10px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .metric-card h3 .badge {
+      font-size: 0.65rem;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: rgba(0, 255, 136, 0.2);
+      color: #00ff88;
+    }
+
+    .metric-card h3 .badge.warning {
+      background: rgba(255, 136, 0, 0.2);
+      color: #ff8800;
+    }
+
+    .metric-main {
+      display: flex;
+      align-items: baseline;
+      gap: 5px;
+      margin-bottom: 10px;
+    }
+
+    .metric-value {
+      font-size: 2rem;
+      font-weight: 700;
+      background: linear-gradient(90deg, #00d9ff, #00ff88);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .metric-value.small {
+      font-size: 1.2rem;
+    }
+
+    .metric-unit {
+      font-size: 0.85rem;
+      color: #888;
+    }
+
+    .metric-details {
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+      padding-top: 10px;
+    }
+
+    .detail-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 4px 0;
+      font-size: 0.8rem;
+    }
+
+    .detail-label {
+      color: #666;
+    }
+
+    .detail-value {
+      color: #fff;
+      font-weight: 500;
+      font-family: 'SF Mono', Monaco, monospace;
+    }
+
+    .detail-value.true {
+      color: #00ff88;
+    }
+
+    .detail-value.false {
+      color: #ff4444;
+    }
+
+    .detail-value.high {
+      color: #00ff88;
+    }
+
+    .detail-value.medium {
+      color: #ffcc00;
+    }
+
+    .detail-value.low {
+      color: #ff4444;
+    }
+
+    .progress-bar {
+      width: 100%;
+      height: 4px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 2px;
+      overflow: hidden;
+      margin: 8px 0;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #00d9ff, #00ff88);
+      border-radius: 2px;
+      transition: width 0.3s ease;
+    }
+
+    .focus-ring {
+      width: 80px;
+      height: 80px;
+      margin: 0 auto 10px;
+      position: relative;
+    }
+
+    .focus-ring svg {
+      transform: rotate(-90deg);
+    }
+
+    .focus-ring-bg {
+      fill: none;
+      stroke: rgba(255, 255, 255, 0.1);
+      stroke-width: 6;
+    }
+
+    .focus-ring-progress {
+      fill: none;
+      stroke: url(#gradient);
+      stroke-width: 6;
+      stroke-linecap: round;
+      stroke-dasharray: 226.195;
+      stroke-dashoffset: 226.195;
+      transition: stroke-dashoffset 0.5s ease;
+    }
+
+    .focus-value-center {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 1.2rem;
+      font-weight: 700;
+    }
+
+    .loading-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(26, 26, 46, 0.95);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      z-index: 1000;
+    }
+
+    .loading-overlay.hidden {
+      display: none;
+    }
+
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid rgba(255, 255, 255, 0.1);
+      border-top-color: #00d9ff;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .loading-text {
+      margin-top: 15px;
+      color: #888;
+      font-size: 0.9rem;
+    }
+
+    .raw-data-section {
+      grid-column: 1 / -1;
+      background: rgba(0, 0, 0, 0.3);
+      border-radius: 8px;
+      padding: 15px;
+      margin-top: 10px;
+    }
+
+    .raw-data-section h3 {
+      font-size: 0.75rem;
+      color: #00d9ff;
+      margin-bottom: 10px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .raw-json {
+      font-family: 'SF Mono', Monaco, monospace;
+      font-size: 0.7rem;
+      color: #00ff88;
+      background: rgba(0, 0, 0, 0.5);
+      padding: 10px;
+      border-radius: 6px;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="loading-overlay" id="loadingOverlay">
+    <div class="spinner"></div>
+    <p class="loading-text" id="loadingText">MediaPipe 모델 로딩 중...</p>
+  </div>
+
+  <div class="container">
+    <header>
+      <h1>SuperKiwi SDK Demo</h1>
+      <p>실시간 비접촉 생체 신호 분석 - 전체 데이터 표시</p>
+    </header>
+
+    <div class="main-content">
+      <!-- Video Section -->
+      <div class="video-section">
+        <div class="video-container">
+          <video id="video" autoplay playsinline></video>
+          <canvas id="canvas-overlay"></canvas>
+        </div>
+
+        <div class="status-bar">
+          <div class="status-indicator">
+            <div class="status-dot" id="statusDot"></div>
+            <span id="statusText">대기 중</span>
+          </div>
+          <div>
+            <span id="fpsCounter">0 FPS</span>
+            <span style="margin-left: 10px; color: #666;" id="timestampDisplay">--</span>
+          </div>
+        </div>
+
+        <div class="controls">
+          <button id="startBtn">시작</button>
+          <button id="resetBtn">초기화</button>
+          <button id="pipBtn" title="Picture-in-Picture">📺 PiP</button>
+        </div>
+        <div class="pip-notice" id="pipNotice">
+          ✨ PiP 모드 활성화됨 - 탭을 전환해도 분석이 계속됩니다
+        </div>
+
+        <!-- Basic Info -->
+        <div class="metric-card" style="margin-top: 15px;">
+          <h3>Basic Info</h3>
+          <div class="detail-row">
+            <span class="detail-label">Face Detected</span>
+            <span class="detail-value" id="faceDetected">--</span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">Timestamp</span>
+            <span class="detail-value" id="timestamp">--</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Metrics Section -->
+      <div class="metrics-section">
+        <!-- Heart Rate Card -->
+        <div class="metric-card">
+          <h3>Heart Rate <span class="badge" id="hrReadyBadge">준비중</span></h3>
+          <div class="metric-main">
+            <span class="metric-value" id="heartRateValue">--</span>
+            <span class="metric-unit">BPM</span>
+          </div>
+          <div class="progress-bar">
+            <div class="progress-fill" id="hrProgress" style="width: 0%"></div>
+          </div>
+          <div class="metric-details">
+            <div class="detail-row">
+              <span class="detail-label">signalQuality</span>
+              <span class="detail-value" id="signalQuality">--</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">rrInterval</span>
+              <span class="detail-value" id="rrInterval">-- ms</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">isReady</span>
+              <span class="detail-value" id="hrIsReady">--</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- HRV Card -->
+        <div class="metric-card">
+          <h3>HRV Analysis <span class="badge" id="hrvReadyBadge">데이터 수집중</span></h3>
+          <div class="metric-details" style="border: none; padding-top: 0;">
+            <div class="detail-row">
+              <span class="detail-label">sdnn</span>
+              <span class="detail-value" id="sdnn">-- ms</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">rmssd</span>
+              <span class="detail-value" id="rmssd">-- ms</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">pnn50</span>
+              <span class="detail-value" id="pnn50">-- %</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">stressIndex</span>
+              <span class="detail-value" id="stressIndex">--</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">timestamp</span>
+              <span class="detail-value" id="hrvTimestamp">--</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Focus Score Card -->
+        <div class="metric-card">
+          <h3>Focus Score <span class="badge" id="focusStateBadge">--</span></h3>
+          <div class="focus-ring">
+            <svg width="80" height="80" viewBox="0 0 80 80">
+              <defs>
+                <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%" stop-color="#00d9ff" />
+                  <stop offset="100%" stop-color="#00ff88" />
+                </linearGradient>
+              </defs>
+              <circle class="focus-ring-bg" cx="40" cy="40" r="36" />
+              <circle class="focus-ring-progress" id="focusRing" cx="40" cy="40" r="36" />
+            </svg>
+            <div class="focus-value-center" id="focusValue">--</div>
+          </div>
+          <div class="metric-details">
+            <div class="detail-row">
+              <span class="detail-label">score</span>
+              <span class="detail-value" id="focusScoreRaw">--</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">faceScore</span>
+              <span class="detail-value" id="faceScore">--</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">gazeScore</span>
+              <span class="detail-value" id="gazeScoreValue">--</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">blinkScore</span>
+              <span class="detail-value" id="blinkScoreValue">--</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">state</span>
+              <span class="detail-value" id="focusState">--</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Blink Card -->
+        <div class="metric-card">
+          <h3>Blink Detection</h3>
+          <div class="metric-main">
+            <span class="metric-value small" id="blinkRateValue">--</span>
+            <span class="metric-unit">/min</span>
+          </div>
+          <div class="metric-details">
+            <div class="detail-row">
+              <span class="detail-label">ear (avg)</span>
+              <span class="detail-value" id="ear">--</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">leftEar</span>
+              <span class="detail-value" id="leftEar">--</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">rightEar</span>
+              <span class="detail-value" id="rightEar">--</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">isBlinking</span>
+              <span class="detail-value" id="isBlinking">--</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">blinkCount</span>
+              <span class="detail-value" id="blinkCount">--</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">blinkRate</span>
+              <span class="detail-value" id="blinkRate">--</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Gaze Card -->
+        <div class="metric-card">
+          <h3>Gaze Tracking</h3>
+          <div class="metric-main">
+            <span class="metric-value small" id="gazeStabilityValue">--</span>
+            <span class="metric-unit">stability</span>
+          </div>
+          <div class="metric-details">
+            <div class="detail-row">
+              <span class="detail-label">center.x</span>
+              <span class="detail-value" id="gazeCenterX">--</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">center.y</span>
+              <span class="detail-value" id="gazeCenterY">--</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">vector.x</span>
+              <span class="detail-value" id="gazeVectorX">--</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">vector.y</span>
+              <span class="detail-value" id="gazeVectorY">--</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">vector.distance</span>
+              <span class="detail-value" id="gazeDistance">--</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">stability</span>
+              <span class="detail-value" id="gazeStability">--</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Head Pose Card -->
+        <div class="metric-card">
+          <h3>Head Pose</h3>
+          <div class="metric-details" style="border: none; padding-top: 0;">
+            <div class="detail-row">
+              <span class="detail-label">pitch (상하)</span>
+              <span class="detail-value" id="pitch">--°</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">yaw (좌우)</span>
+              <span class="detail-value" id="yaw">--°</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">roll (기울기)</span>
+              <span class="detail-value" id="roll">--°</span>
+            </div>
+          </div>
+          <div style="margin-top: 10px; text-align: center;">
+            <canvas id="headPoseCanvas" width="100" height="100" style="border-radius: 8px; background: rgba(0,0,0,0.3);"></canvas>
+          </div>
+        </div>
+
+        <!-- Raw JSON Data -->
+        <div class="raw-data-section">
+          <h3>Raw SuperKiwiResult JSON</h3>
+          <pre class="raw-json" id="rawJson">{}</pre>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "@mediapipe/tasks-vision": "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/+esm"
+    }
+  }
+  </script>
+
+  <script type="module">
+    import { FaceLandmarker, FilesetResolver, DrawingUtils } from '@mediapipe/tasks-vision';
+
+    // ========================================
+    // Complete SuperKiwiSDK for Demo
+    // ========================================
+    class SuperKiwiSDK {
+      constructor(options = {}) {
+        this.fps = options.fps || 30;
+        this.bufferSize = options.rppgBufferSize || 300;
+        this.minBPM = options.minHeartRate || 45;
+        this.maxBPM = options.maxHeartRate || 180;
+        this.blinkThreshold = options.blinkThreshold || 0.21;
+
+        this.reset();
+      }
+
+      reset() {
+        this.signalBuffer = [];
+        this.timestamps = [];
+        this.rrIntervals = [];
+        this.blinkCount = 0;
+        this.lastBlinkTime = 0;
+        this.wasBlinking = false;
+        this.gazeHistory = [];
+        this.focusHistory = [];
+        this.startTime = Date.now();
+      }
+
+      processFrame(video, landmarks, timestamp = Date.now()) {
+        const faceDetected = landmarks && landmarks.length >= 468;
+
+        const result = {
+          timestamp,
+          faceDetected,
+          heartRate: this.getDefaultHeartRate(),
+          hrv: null,
+          blink: this.getDefaultBlink(),
+          gaze: this.getDefaultGaze(),
+          headPose: this.getDefaultHeadPose(),
+          focusScore: this.getDefaultFocusScore()
+        };
+
+        if (!faceDetected) {
+          result.focusScore = this.calculateFocusScore(false, 0, 0.5);
+          return result;
+        }
+
+        // Extract ROI and process rPPG signal
+        this.processRPPG(video, landmarks);
+
+        // Analyze heart rate if buffer is ready
+        if (this.signalBuffer.length >= this.bufferSize * 0.5) {
+          result.heartRate = this.analyzeHeartRate();
+        }
+
+        // Analyze HRV if we have enough RR intervals
+        if (this.rrIntervals.length >= 30) {
+          result.hrv = this.analyzeHRV();
+        }
+
+        // Blink detection
+        result.blink = this.detectBlink(landmarks, timestamp);
+
+        // Gaze tracking
+        result.gaze = this.trackGaze(landmarks);
+
+        // Head pose
+        result.headPose = this.estimateHeadPose(landmarks);
+
+        // Focus score
+        result.focusScore = this.calculateFocusScore(
+          true,
+          result.gaze.stability,
+          this.getBlinkStability(result.blink.blinkRate)
+        );
+
+        return result;
+      }
+
+      processRPPG(video, landmarks) {
+        const roiIndices = [10, 108, 337, 151];
+        const roiPoints = roiIndices.map(i => landmarks[i]);
+
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        ctx.drawImage(video, 0, 0);
+
+        const minX = Math.min(...roiPoints.map(p => p.x)) * canvas.width;
+        const maxX = Math.max(...roiPoints.map(p => p.x)) * canvas.width;
+        const minY = Math.min(...roiPoints.map(p => p.y)) * canvas.height;
+        const maxY = Math.max(...roiPoints.map(p => p.y)) * canvas.height;
+
+        const width = Math.max(1, maxX - minX);
+        const height = Math.max(1, maxY - minY);
+
+        try {
+          const imageData = ctx.getImageData(minX, minY, width, height);
+          const pixels = imageData.data;
+
+          let greenSum = 0;
+          let count = 0;
+          for (let i = 0; i < pixels.length; i += 4) {
+            greenSum += pixels[i + 1];
+            count++;
+          }
+          const greenAvg = greenSum / count;
+
+          this.signalBuffer.push(greenAvg);
+          this.timestamps.push(Date.now());
+
+          if (this.signalBuffer.length > this.bufferSize) {
+            this.signalBuffer.shift();
+            this.timestamps.shift();
+          }
+        } catch (e) {}
+      }
+
+      analyzeHeartRate() {
+        if (this.signalBuffer.length < 64) {
+          return { bpm: null, signalQuality: 0, rrInterval: null, isReady: false };
+        }
+
+        const filtered = this.bandpassFilter(this.signalBuffer);
+        const peaks = this.findPeaks(filtered);
+
+        const isReady = this.signalBuffer.length >= this.bufferSize * 0.8;
+
+        if (peaks.length < 2) {
+          return { bpm: null, signalQuality: 0.3, rrInterval: null, isReady };
+        }
+
+        const intervals = [];
+        for (let i = 1; i < peaks.length; i++) {
+          const interval = this.timestamps[peaks[i]] - this.timestamps[peaks[i-1]];
+          if (interval > 300 && interval < 2000) {
+            intervals.push(interval);
+          }
+        }
+
+        if (intervals.length === 0) {
+          return { bpm: null, signalQuality: 0.4, rrInterval: null, isReady };
+        }
+
+        const avgInterval = intervals.reduce((a, b) => a + b, 0) / intervals.length;
+        const bpm = Math.round(60000 / avgInterval);
+
+        if (intervals.length > 0) {
+          this.rrIntervals.push(...intervals.slice(-3));
+          if (this.rrIntervals.length > 100) {
+            this.rrIntervals = this.rrIntervals.slice(-100);
+          }
+        }
+
+        if (bpm < this.minBPM || bpm > this.maxBPM) {
+          return { bpm: null, signalQuality: 0.5, rrInterval: avgInterval, isReady };
+        }
+
+        return {
+          bpm,
+          signalQuality: Math.min(1, intervals.length / 10),
+          rrInterval: Math.round(avgInterval),
+          isReady
+        };
+      }
+
+      bandpassFilter(signal) {
+        const windowSize = 5;
+        const smoothed = [];
+
+        for (let i = 0; i < signal.length; i++) {
+          let sum = 0;
+          let count = 0;
+          for (let j = Math.max(0, i - windowSize); j <= Math.min(signal.length - 1, i + windowSize); j++) {
+            sum += signal[j];
+            count++;
+          }
+          smoothed.push(sum / count);
+        }
+
+        const mean = smoothed.reduce((a, b) => a + b, 0) / smoothed.length;
+        return smoothed.map(v => v - mean);
+      }
+
+      findPeaks(signal) {
+        const peaks = [];
+        const threshold = Math.max(...signal.map(Math.abs)) * 0.3;
+
+        for (let i = 2; i < signal.length - 2; i++) {
+          if (signal[i] > threshold &&
+              signal[i] > signal[i-1] &&
+              signal[i] > signal[i-2] &&
+              signal[i] > signal[i+1] &&
+              signal[i] > signal[i+2]) {
+            if (peaks.length === 0 || i - peaks[peaks.length - 1] > 10) {
+              peaks.push(i);
+            }
+          }
+        }
+
+        return peaks;
+      }
+
+      analyzeHRV() {
+        if (this.rrIntervals.length < 30) return null;
+
+        const intervals = this.rrIntervals.slice(-50);
+        const mean = intervals.reduce((a, b) => a + b, 0) / intervals.length;
+
+        const sdnn = Math.sqrt(
+          intervals.reduce((sum, rr) => sum + Math.pow(rr - mean, 2), 0) / (intervals.length - 1)
+        );
+
+        let sumSquaredDiff = 0;
+        for (let i = 1; i < intervals.length; i++) {
+          sumSquaredDiff += Math.pow(intervals[i] - intervals[i-1], 2);
+        }
+        const rmssd = Math.sqrt(sumSquaredDiff / (intervals.length - 1));
+
+        let nn50Count = 0;
+        for (let i = 1; i < intervals.length; i++) {
+          if (Math.abs(intervals[i] - intervals[i-1]) > 50) {
+            nn50Count++;
+          }
+        }
+        const pnn50 = (nn50Count / (intervals.length - 1)) * 100;
+
+        const stressIndex = Math.max(0, Math.min(100, 100 - rmssd));
+
+        return {
+          sdnn: Math.round(sdnn * 10) / 10,
+          rmssd: Math.round(rmssd * 10) / 10,
+          pnn50: Math.round(pnn50 * 10) / 10,
+          stressIndex: Math.round(stressIndex),
+          timestamp: Date.now()
+        };
+      }
+
+      detectBlink(landmarks, timestamp) {
+        const leftEye = [33, 160, 158, 133, 153, 144];
+        const rightEye = [362, 385, 387, 263, 373, 380];
+
+        const leftEAR = this.calculateEAR(landmarks, leftEye);
+        const rightEAR = this.calculateEAR(landmarks, rightEye);
+        const avgEAR = (leftEAR + rightEAR) / 2;
+
+        const isBlinking = avgEAR < this.blinkThreshold;
+
+        if (isBlinking && !this.wasBlinking) {
+          this.blinkCount++;
+          this.lastBlinkTime = timestamp;
+        }
+        this.wasBlinking = isBlinking;
+
+        const elapsed = (timestamp - this.startTime) / 60000;
+        const blinkRate = elapsed > 0 ? this.blinkCount / elapsed : 0;
+
+        return {
+          ear: Math.round(avgEAR * 1000) / 1000,
+          leftEar: Math.round(leftEAR * 1000) / 1000,
+          rightEar: Math.round(rightEAR * 1000) / 1000,
+          isBlinking,
+          blinkCount: this.blinkCount,
+          blinkRate: Math.round(blinkRate * 10) / 10
+        };
+      }
+
+      calculateEAR(landmarks, indices) {
+        const p = indices.map(i => landmarks[i]);
+
+        const vertical1 = Math.sqrt(
+          Math.pow(p[1].x - p[5].x, 2) + Math.pow(p[1].y - p[5].y, 2)
+        );
+        const vertical2 = Math.sqrt(
+          Math.pow(p[2].x - p[4].x, 2) + Math.pow(p[2].y - p[4].y, 2)
+        );
+        const horizontal = Math.sqrt(
+          Math.pow(p[0].x - p[3].x, 2) + Math.pow(p[0].y - p[3].y, 2)
+        );
+
+        return (vertical1 + vertical2) / (2 * horizontal);
+      }
+
+      trackGaze(landmarks) {
+        // Eye centers
+        const leftEyeCenter = landmarks[159];
+        const rightEyeCenter = landmarks[386];
+
+        // Calculate center point
+        const center = {
+          x: Math.round(((leftEyeCenter.x + rightEyeCenter.x) / 2) * 1000) / 1000,
+          y: Math.round(((leftEyeCenter.y + rightEyeCenter.y) / 2) * 1000) / 1000
+        };
+
+        // Calculate vector from center (0.5, 0.5)
+        const vectorX = center.x - 0.5;
+        const vectorY = center.y - 0.5;
+        const distance = Math.sqrt(vectorX * vectorX + vectorY * vectorY);
+
+        const vector = {
+          x: Math.round(vectorX * 1000) / 1000,
+          y: Math.round(vectorY * 1000) / 1000,
+          distance: Math.round(distance * 1000) / 1000
+        };
+
+        // Track history for stability
+        this.gazeHistory.push({ x: vectorX, y: vectorY });
+        if (this.gazeHistory.length > 30) {
+          this.gazeHistory.shift();
+        }
+
+        // Calculate stability (lower variance = higher stability)
+        let stability = 1;
+        if (this.gazeHistory.length > 5) {
+          const recentGaze = this.gazeHistory.slice(-10);
+          const avgX = recentGaze.reduce((s, g) => s + g.x, 0) / recentGaze.length;
+          const avgY = recentGaze.reduce((s, g) => s + g.y, 0) / recentGaze.length;
+          const variance = recentGaze.reduce((sum, g) => {
+            return sum + Math.pow(g.x - avgX, 2) + Math.pow(g.y - avgY, 2);
+          }, 0) / recentGaze.length;
+          stability = Math.max(0, Math.min(1, 1 - variance * 50));
+        }
+
+        return {
+          center,
+          vector,
+          stability: Math.round(stability * 1000) / 1000
+        };
+      }
+
+      estimateHeadPose(landmarks) {
+        const noseTip = landmarks[1];
+        const chin = landmarks[152];
+        const leftEye = landmarks[33];
+        const rightEye = landmarks[263];
+        const forehead = landmarks[10];
+
+        const pitch = Math.atan2(
+          noseTip.y - forehead.y,
+          Math.abs(noseTip.z - forehead.z) + 0.001
+        ) * (180 / Math.PI);
+
+        const yaw = Math.atan2(
+          rightEye.x - leftEye.x,
+          Math.abs(rightEye.z - leftEye.z) + 0.001
+        ) * (180 / Math.PI) - 90;
+
+        const roll = Math.atan2(
+          rightEye.y - leftEye.y,
+          rightEye.x - leftEye.x
+        ) * (180 / Math.PI);
+
+        return {
+          pitch: Math.round(pitch),
+          yaw: Math.round(yaw),
+          roll: Math.round(roll)
+        };
+      }
+
+      getBlinkStability(blinkRate) {
+        // Normal blink rate is 15-20 per minute
+        const idealRate = 17;
+        const deviation = Math.abs(blinkRate - idealRate);
+        return Math.max(0, Math.min(1, 1 - deviation / 20));
+      }
+
+      calculateFocusScore(faceDetected, gazeStability, blinkStability) {
+        const faceScore = faceDetected ? 1 : 0;
+        const gazeScore = gazeStability;
+        const blinkScore = blinkStability;
+
+        const score = faceScore * 0.4 + gazeScore * 0.4 + blinkScore * 0.2;
+
+        let state = 'low';
+        if (score >= 0.7) state = 'high';
+        else if (score >= 0.4) state = 'medium';
+
+        this.focusHistory.push(score);
+        if (this.focusHistory.length > 100) {
+          this.focusHistory.shift();
+        }
+
+        return {
+          score: Math.round(score * 1000) / 1000,
+          faceScore: Math.round(faceScore * 1000) / 1000,
+          gazeScore: Math.round(gazeScore * 1000) / 1000,
+          blinkScore: Math.round(blinkScore * 1000) / 1000,
+          state
+        };
+      }
+
+      getAverageFocusScore() {
+        if (this.focusHistory.length === 0) return 0;
+        return this.focusHistory.reduce((a, b) => a + b, 0) / this.focusHistory.length;
+      }
+
+      isHRVReady() {
+        return this.rrIntervals.length >= 30;
+      }
+
+      getDefaultHeartRate() {
+        return { bpm: null, signalQuality: 0, rrInterval: null, isReady: false };
+      }
+
+      getDefaultBlink() {
+        return { ear: 0, leftEar: 0, rightEar: 0, isBlinking: false, blinkCount: 0, blinkRate: 0 };
+      }
+
+      getDefaultGaze() {
+        return { center: { x: 0.5, y: 0.5 }, vector: { x: 0, y: 0, distance: 0 }, stability: 0 };
+      }
+
+      getDefaultHeadPose() {
+        return { pitch: 0, yaw: 0, roll: 0 };
+      }
+
+      getDefaultFocusScore() {
+        return { score: 0, faceScore: 0, gazeScore: 0, blinkScore: 0, state: 'low' };
+      }
+
+      static get version() {
+        return '1.0.1';
+      }
+    }
+
+    // ========================================
+    // Demo Application
+    // ========================================
+    class SuperKiwiDemo {
+      constructor() {
+        this.video = document.getElementById('video');
+        this.canvas = document.getElementById('canvas-overlay');
+        this.ctx = this.canvas.getContext('2d');
+        this.headPoseCanvas = document.getElementById('headPoseCanvas');
+        this.headPoseCtx = this.headPoseCanvas.getContext('2d');
+
+        this.faceLandmarker = null;
+        this.sdk = null;
+        this.drawingUtils = null;
+
+        this.isRunning = false;
+        this.frameCount = 0;
+        this.lastFpsUpdate = Date.now();
+        this.fps = 0;
+
+        this.initElements();
+        this.initEventListeners();
+      }
+
+      initElements() {
+        this.el = {
+          loadingOverlay: document.getElementById('loadingOverlay'),
+          loadingText: document.getElementById('loadingText'),
+          statusDot: document.getElementById('statusDot'),
+          statusText: document.getElementById('statusText'),
+          fpsCounter: document.getElementById('fpsCounter'),
+          timestampDisplay: document.getElementById('timestampDisplay'),
+          startBtn: document.getElementById('startBtn'),
+          resetBtn: document.getElementById('resetBtn'),
+          pipBtn: document.getElementById('pipBtn'),
+          pipNotice: document.getElementById('pipNotice'),
+          rawJson: document.getElementById('rawJson'),
+
+          // Basic
+          faceDetected: document.getElementById('faceDetected'),
+          timestamp: document.getElementById('timestamp'),
+
+          // Heart Rate
+          heartRateValue: document.getElementById('heartRateValue'),
+          hrProgress: document.getElementById('hrProgress'),
+          signalQuality: document.getElementById('signalQuality'),
+          rrInterval: document.getElementById('rrInterval'),
+          hrIsReady: document.getElementById('hrIsReady'),
+          hrReadyBadge: document.getElementById('hrReadyBadge'),
+
+          // HRV
+          sdnn: document.getElementById('sdnn'),
+          rmssd: document.getElementById('rmssd'),
+          pnn50: document.getElementById('pnn50'),
+          stressIndex: document.getElementById('stressIndex'),
+          hrvTimestamp: document.getElementById('hrvTimestamp'),
+          hrvReadyBadge: document.getElementById('hrvReadyBadge'),
+
+          // Focus
+          focusValue: document.getElementById('focusValue'),
+          focusRing: document.getElementById('focusRing'),
+          focusScoreRaw: document.getElementById('focusScoreRaw'),
+          faceScore: document.getElementById('faceScore'),
+          gazeScoreValue: document.getElementById('gazeScoreValue'),
+          blinkScoreValue: document.getElementById('blinkScoreValue'),
+          focusState: document.getElementById('focusState'),
+          focusStateBadge: document.getElementById('focusStateBadge'),
+
+          // Blink
+          ear: document.getElementById('ear'),
+          leftEar: document.getElementById('leftEar'),
+          rightEar: document.getElementById('rightEar'),
+          isBlinking: document.getElementById('isBlinking'),
+          blinkCount: document.getElementById('blinkCount'),
+          blinkRate: document.getElementById('blinkRate'),
+          blinkRateValue: document.getElementById('blinkRateValue'),
+
+          // Gaze
+          gazeCenterX: document.getElementById('gazeCenterX'),
+          gazeCenterY: document.getElementById('gazeCenterY'),
+          gazeVectorX: document.getElementById('gazeVectorX'),
+          gazeVectorY: document.getElementById('gazeVectorY'),
+          gazeDistance: document.getElementById('gazeDistance'),
+          gazeStability: document.getElementById('gazeStability'),
+          gazeStabilityValue: document.getElementById('gazeStabilityValue'),
+
+          // Head Pose
+          pitch: document.getElementById('pitch'),
+          yaw: document.getElementById('yaw'),
+          roll: document.getElementById('roll')
+        };
+      }
+
+      initEventListeners() {
+        this.el.startBtn.addEventListener('click', () => this.toggleRunning());
+        this.el.resetBtn.addEventListener('click', () => this.reset());
+        this.el.pipBtn.addEventListener('click', () => this.togglePiP());
+
+        // PiP 상태 변화 감지
+        this.video.addEventListener('enterpictureinpicture', () => {
+          this.el.pipBtn.classList.add('active');
+          this.el.pipBtn.textContent = '📺 PiP 종료';
+          this.el.pipNotice.classList.add('visible');
+        });
+
+        this.video.addEventListener('leavepictureinpicture', () => {
+          this.el.pipBtn.classList.remove('active');
+          this.el.pipBtn.textContent = '📺 PiP';
+          this.el.pipNotice.classList.remove('visible');
+        });
+
+        // PiP 지원 여부 체크
+        if (!document.pictureInPictureEnabled) {
+          this.el.pipBtn.disabled = true;
+          this.el.pipBtn.title = 'PiP를 지원하지 않는 브라우저입니다';
+        }
+      }
+
+      async togglePiP() {
+        try {
+          if (document.pictureInPictureElement) {
+            // PiP 종료
+            await document.exitPictureInPicture();
+          } else {
+            // PiP 시작
+            await this.video.requestPictureInPicture();
+          }
+        } catch (error) {
+          console.error('PiP 오류:', error);
+          alert('PiP 모드를 시작할 수 없습니다: ' + error.message);
+        }
+      }
+
+      async init() {
+        try {
+          this.el.loadingText.textContent = 'MediaPipe 모델 로딩 중...';
+
+          const vision = await FilesetResolver.forVisionTasks(
+            'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm'
+          );
+
+          this.el.loadingText.textContent = 'Face Landmarker 초기화 중...';
+
+          this.faceLandmarker = await FaceLandmarker.createFromOptions(vision, {
+            baseOptions: {
+              modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
+              delegate: 'GPU'
+            },
+            runningMode: 'VIDEO',
+            numFaces: 1,
+            outputFaceBlendshapes: true,
+            outputFacialTransformationMatrixes: true
+          });
+
+          this.drawingUtils = new DrawingUtils(this.ctx);
+
+          this.sdk = new SuperKiwiSDK({
+            fps: 30,
+            rppgBufferSize: 300
+          });
+
+          this.el.loadingText.textContent = '카메라 접근 중...';
+          await this.setupCamera();
+
+          this.el.loadingOverlay.classList.add('hidden');
+          this.el.statusText.textContent = '준비 완료';
+
+        } catch (error) {
+          console.error(error);
+          this.el.loadingText.textContent = `오류: ${error.message}`;
+        }
+      }
+
+      async setupCamera() {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            width: { ideal: 640 },
+            height: { ideal: 480 },
+            facingMode: 'user',
+            frameRate: { ideal: 30 }
+          }
+        });
+
+        this.video.srcObject = stream;
+
+        return new Promise((resolve) => {
+          this.video.onloadedmetadata = () => {
+            this.canvas.width = this.video.videoWidth;
+            this.canvas.height = this.video.videoHeight;
+            this.video.play();
+            resolve();
+          };
+        });
+      }
+
+      toggleRunning() {
+        if (this.isRunning) {
+          this.stop();
+        } else {
+          this.start();
+        }
+      }
+
+      start() {
+        this.isRunning = true;
+        this.el.startBtn.textContent = '정지';
+        this.el.statusDot.classList.add('active');
+        this.el.statusText.textContent = '분석 중...';
+        this.processFrame();
+      }
+
+      stop() {
+        this.isRunning = false;
+        this.el.startBtn.textContent = '시작';
+        this.el.statusDot.classList.remove('active');
+        this.el.statusText.textContent = '정지됨';
+      }
+
+      reset() {
+        this.sdk?.reset();
+        this.el.rawJson.textContent = '{}';
+      }
+
+      async processFrame() {
+        if (!this.isRunning) return;
+
+        const startTime = performance.now();
+
+        try {
+          const detection = this.faceLandmarker.detectForVideo(this.video, startTime);
+
+          this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+
+          let result;
+
+          if (detection.faceLandmarks && detection.faceLandmarks.length > 0) {
+            const landmarks = detection.faceLandmarks[0];
+
+            // Draw landmarks
+            this.drawingUtils.drawConnectors(
+              landmarks,
+              FaceLandmarker.FACE_LANDMARKS_TESSELATION,
+              { color: '#00d9ff22', lineWidth: 1 }
+            );
+            this.drawingUtils.drawConnectors(
+              landmarks,
+              FaceLandmarker.FACE_LANDMARKS_FACE_OVAL,
+              { color: '#00ff88', lineWidth: 2 }
+            );
+            this.drawingUtils.drawConnectors(
+              landmarks,
+              FaceLandmarker.FACE_LANDMARKS_LEFT_EYE,
+              { color: '#00d9ff', lineWidth: 2 }
+            );
+            this.drawingUtils.drawConnectors(
+              landmarks,
+              FaceLandmarker.FACE_LANDMARKS_RIGHT_EYE,
+              { color: '#00d9ff', lineWidth: 2 }
+            );
+
+            result = this.sdk.processFrame(this.video, landmarks);
+          } else {
+            result = this.sdk.processFrame(this.video, null);
+          }
+
+          this.updateUI(result);
+
+          // Update FPS
+          this.frameCount++;
+          const now = Date.now();
+          if (now - this.lastFpsUpdate >= 1000) {
+            this.fps = this.frameCount;
+            this.frameCount = 0;
+            this.lastFpsUpdate = now;
+            this.el.fpsCounter.textContent = `${this.fps} FPS`;
+          }
+
+        } catch (error) {
+          console.error('Frame processing error:', error);
+        }
+
+        requestAnimationFrame(() => this.processFrame());
+      }
+
+      updateUI(r) {
+        // Raw JSON
+        this.el.rawJson.textContent = JSON.stringify(r, null, 2);
+
+        // Basic Info
+        this.el.faceDetected.textContent = r.faceDetected;
+        this.el.faceDetected.className = `detail-value ${r.faceDetected}`;
+        this.el.timestamp.textContent = r.timestamp;
+        this.el.timestampDisplay.textContent = new Date(r.timestamp).toLocaleTimeString();
+
+        // Heart Rate
+        const hr = r.heartRate;
+        this.el.heartRateValue.textContent = hr.bpm ?? '--';
+        this.el.hrProgress.style.width = hr.bpm ? `${Math.min(100, (hr.bpm - 40) / 1.4)}%` : '0%';
+        this.el.signalQuality.textContent = hr.signalQuality.toFixed(3);
+        this.el.rrInterval.textContent = hr.rrInterval ? `${hr.rrInterval} ms` : 'null';
+        this.el.hrIsReady.textContent = hr.isReady;
+        this.el.hrIsReady.className = `detail-value ${hr.isReady}`;
+        this.el.hrReadyBadge.textContent = hr.isReady ? '준비됨' : '준비중';
+        this.el.hrReadyBadge.className = hr.isReady ? 'badge' : 'badge warning';
+
+        // HRV
+        if (r.hrv) {
+          this.el.sdnn.textContent = `${r.hrv.sdnn} ms`;
+          this.el.rmssd.textContent = `${r.hrv.rmssd} ms`;
+          this.el.pnn50.textContent = `${r.hrv.pnn50} %`;
+          this.el.stressIndex.textContent = r.hrv.stressIndex;
+          this.el.hrvTimestamp.textContent = r.hrv.timestamp;
+          this.el.hrvReadyBadge.textContent = '분석완료';
+          this.el.hrvReadyBadge.className = 'badge';
+        } else {
+          this.el.hrvReadyBadge.textContent = '데이터 수집중';
+          this.el.hrvReadyBadge.className = 'badge warning';
+        }
+
+        // Focus Score
+        const fs = r.focusScore;
+        const scorePercent = Math.round(fs.score * 100);
+        this.el.focusValue.textContent = scorePercent;
+        this.el.focusScoreRaw.textContent = fs.score;
+        this.el.faceScore.textContent = fs.faceScore;
+        this.el.gazeScoreValue.textContent = fs.gazeScore;
+        this.el.blinkScoreValue.textContent = fs.blinkScore;
+        this.el.focusState.textContent = fs.state;
+        this.el.focusState.className = `detail-value ${fs.state}`;
+        this.el.focusStateBadge.textContent = fs.state.toUpperCase();
+        this.el.focusStateBadge.className = `badge ${fs.state === 'low' ? 'warning' : ''}`;
+
+        // Focus ring
+        const circumference = 226.195;
+        const offset = circumference - (fs.score) * circumference;
+        this.el.focusRing.style.strokeDashoffset = offset;
+
+        // Blink
+        const bl = r.blink;
+        this.el.ear.textContent = bl.ear;
+        this.el.leftEar.textContent = bl.leftEar;
+        this.el.rightEar.textContent = bl.rightEar;
+        this.el.isBlinking.textContent = bl.isBlinking;
+        this.el.isBlinking.className = `detail-value ${bl.isBlinking}`;
+        this.el.blinkCount.textContent = bl.blinkCount;
+        this.el.blinkRate.textContent = bl.blinkRate;
+        this.el.blinkRateValue.textContent = bl.blinkRate;
+
+        // Gaze
+        const gz = r.gaze;
+        this.el.gazeCenterX.textContent = gz.center.x;
+        this.el.gazeCenterY.textContent = gz.center.y;
+        this.el.gazeVectorX.textContent = gz.vector.x;
+        this.el.gazeVectorY.textContent = gz.vector.y;
+        this.el.gazeDistance.textContent = gz.vector.distance;
+        this.el.gazeStability.textContent = gz.stability;
+        this.el.gazeStabilityValue.textContent = (gz.stability * 100).toFixed(0) + '%';
+
+        // Head Pose
+        const hp = r.headPose;
+        this.el.pitch.textContent = `${hp.pitch}°`;
+        this.el.yaw.textContent = `${hp.yaw}°`;
+        this.el.roll.textContent = `${hp.roll}°`;
+
+        // Draw head pose visualization
+        this.drawHeadPose(hp);
+      }
+
+      drawHeadPose(pose) {
+        const ctx = this.headPoseCtx;
+        const w = this.headPoseCanvas.width;
+        const h = this.headPoseCanvas.height;
+        const cx = w / 2;
+        const cy = h / 2;
+
+        ctx.clearRect(0, 0, w, h);
+
+        // Draw face oval
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(pose.roll * Math.PI / 180);
+
+        // Face oval
+        const scaleX = 1 - Math.abs(pose.yaw) / 180;
+        const scaleY = 1 - Math.abs(pose.pitch) / 180;
+
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 25 * scaleX, 35 * scaleY, 0, 0, Math.PI * 2);
+        ctx.strokeStyle = '#00d9ff';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // Eyes
+        const eyeY = -10 * scaleY;
+        const eyeOffset = 12 * scaleX;
+
+        ctx.beginPath();
+        ctx.arc(-eyeOffset - pose.yaw / 10, eyeY, 4, 0, Math.PI * 2);
+        ctx.arc(eyeOffset - pose.yaw / 10, eyeY, 4, 0, Math.PI * 2);
+        ctx.fillStyle = '#00ff88';
+        ctx.fill();
+
+        // Nose
+        ctx.beginPath();
+        ctx.moveTo(-pose.yaw / 10, eyeY + 5);
+        ctx.lineTo(-pose.yaw / 10, eyeY + 15);
+        ctx.strokeStyle = '#00ff88';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // Mouth
+        ctx.beginPath();
+        ctx.arc(-pose.yaw / 10, 15 * scaleY, 8 * scaleX, 0.1 * Math.PI, 0.9 * Math.PI);
+        ctx.strokeStyle = '#00ff88';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        ctx.restore();
+
+        // Labels
+        ctx.fillStyle = '#666';
+        ctx.font = '9px sans-serif';
+        ctx.fillText(`P:${pose.pitch}°`, 5, 12);
+        ctx.fillText(`Y:${pose.yaw}°`, 5, 24);
+        ctx.fillText(`R:${pose.roll}°`, 5, 36);
+      }
+    }
+
+    // Initialize
+    const demo = new SuperKiwiDemo();
+    demo.init();
+  </script>
+</body>
+</html>

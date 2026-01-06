@@ -1,0 +1,66 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Create tarball
+        run: npm pack
+
+      - name: Get package info
+        id: package
+        run: |
+          echo "name=$(node -p "require('./package.json').name")" >> $GITHUB_OUTPUT
+          echo "version=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            *.tgz
+            dist/*
+          generate_release_notes: true
+          body: |
+            ## Installation
+
+            ### Using npm pack file
+            ```bash
+            npm install ./superkiwi-sdk-${{ steps.package.outputs.version }}.tgz
+            ```
+
+            ### Using dist files directly
+            Download `index.js` (CommonJS) or `index.mjs` (ES Module) from assets below.
+
+            ## Usage
+            ```typescript
+            import { SuperKiwiSDK } from 'superkiwi-sdk';
+
+            const sdk = new SuperKiwiSDK();
+            const result = sdk.process(video, landmarks);
+            ```
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

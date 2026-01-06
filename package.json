@@ -1,0 +1,72 @@
+{
+  "name": "superkiwi-sdk",
+  "version": "1.0.0",
+  "description": "Non-contact biometric signal analysis SDK using MediaPipe face landmarks",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/excatt/SuperKiwiSDK.git"
+  },
+  "homepage": "https://github.com/excatt/SuperKiwiSDK#readme",
+  "bugs": {
+    "url": "https://github.com/excatt/SuperKiwiSDK/issues"
+  },
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs,esm --dts --clean",
+    "dev": "tsup src/index.ts --format cjs,esm --dts --watch",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src --ext .ts",
+    "prepublishOnly": "npm run build",
+    "release": "npm run build && npm version",
+    "release:patch": "npm run build && npm version patch && git push --follow-tags",
+    "release:minor": "npm run build && npm version minor && git push --follow-tags",
+    "release:major": "npm run build && npm version major && git push --follow-tags"
+  },
+  "keywords": [
+    "superkiwi",
+    "superkiwi-sdk",
+    "biometric",
+    "mediapipe",
+    "face-detection",
+    "heart-rate",
+    "rppg",
+    "hrv",
+    "blink-detection",
+    "gaze-tracking",
+    "focus-score"
+  ],
+  "author": "SuperKiwi Team",
+  "license": "MIT",
+  "dependencies": {
+    "fft-js": "^0.0.12"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "tsup": "^8.0.1",
+    "typescript": "^5.3.0"
+  },
+  "peerDependencies": {
+    "@mediapipe/tasks-vision": "^0.10.0"
+  },
+  "peerDependenciesMeta": {
+    "@mediapipe/tasks-vision": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
