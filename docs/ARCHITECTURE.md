@@ -24,6 +24,14 @@
 │  └──────────────┘  │ - Roll       │  │ - 종합 점수  │           │
 │                    └──────────────┘  └──────────────┘           │
 │                                                                  │
+│  ┌──────────────────────────────────────────────────┐           │
+│  │ PoseAnalyzer (v2.0.0)                            │           │
+│  │                                                   │           │
+│  │ - 얼굴 미감지 원인 분석 (10가지)                  │           │
+│  │ - 캘리브레이션 기반 자세/거리 판단                │           │
+│  │ - 버퍼 보존/정리 결정                             │           │
+│  └──────────────────────────────────────────────────┘           │
+│                                                                  │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
@@ -239,49 +247,109 @@ class FocusScoreCalculator {
 Focus Score = (얼굴감지 × 0.4) + (시선안정성 × 0.4) + (깜빡임안정성 × 0.2)
 ```
 
+### 8. PoseAnalyzer (v2.0.0)
+
+얼굴 미감지 시 원인을 분석합니다. MediaPipe Pose Landmarker의 출력을 받아 처리합니다.
+
+```typescript
+class PoseAnalyzer {
+  private baselineShoulderDistance: number | null;
+  private calibrationFrameCount: number;
+  private shoulderDistanceHistory: number[];
+  private lastAbsentTimestamp: number | null;
+
+  analyze(poseLandmarks: PoseLandmark[] | null, faceDetected: boolean, timestamp: number): PoseStatusResult;
+  getLastAbsentTimestamp(): number | null;
+  reset(): void;
+}
+```
+
+**캘리브레이션 (30프레임):**
+- 얼굴 정상 감지 시 어깨 간격을 수집
+- 30프레임 후 중앙값을 baseline으로 설정
+
+**감지 우선순위:**
+
+| 우선순위 | 조건 | 결과 |
+|---------|------|------|
+| 1 | 얼굴 정상 감지 | `'none'` |
+| 2 | 포즈 없음 | `'user_absent'` |
+| 3 | 어깨 간격 > 1.4x baseline | `'too_close'` |
+| 4 | 어깨 간격 < 0.6x baseline | `'too_far'` |
+| 5 | 어깨 간격 > 1.2x baseline | `'leaning_forward'` |
+| 6 | 어깨 간격 < 0.8x baseline | `'leaning_back'` |
+| 7 | nose visibility < 0.5 + 어깨 보임 | `'head_turned'` |
+| 8 | nose.y/shoulderMid.y > 1.15 | `'looking_down'` |
+| 9 | nose.y/shoulderMid.y < 0.85 | `'looking_up'` |
+| 10 | 위 모두 아님 | `'unknown'` |
+
+**포즈 랜드마크 인덱스:**
+
+| 부위 | 인덱스 | 용도 |
+|------|--------|------|
+| 코 | 0 | 얼굴 방향 판단 |
+| 왼쪽 어깨 | 11 | 거리/자세 판단 |
+| 오른쪽 어깨 | 12 | 거리/자세 판단 |
+| 왼쪽 엉덩이 | 23 | (예비) |
+| 오른쪽 엉덩이 | 24 | (예비) |
+
 ## 데이터 흐름
 
 ### 프레임 처리 흐름
+
+```
+processFrame(video, landmarks, timestamp, poseLandmarks?)
+├─ poseStatus = poseAnalyzer.analyze(poseLandmarks, faceDetected)
+├─ if (faceDetected && landmarks)
+│   └─ 기존 6개 분석기 실행 + poseStatus 포함
+├─ else if (poseStatus.shouldPreserveBuffers)
+│   └─ getWaitingResult (버퍼 유지, heartRate만 계산 시도)
+└─ else (user_absent timeout 초과)
+    └─ ageBuffers() + getEmptyResult
+```
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
 │                         processFrame()                            │
 ├──────────────────────────────────────────────────────────────────┤
 │                                                                   │
-│  Input: video, landmarks, timestamp                               │
+│  Input: video, landmarks, timestamp, poseLandmarks?               │
 │                                                                   │
-│  ┌─────────────┐                                                  │
-│  │ landmarks   │──────┬──────┬──────┬──────┐                     │
-│  │ null check  │      │      │      │      │                     │
-│  └─────────────┘      │      │      │      │                     │
-│                       ▼      ▼      ▼      ▼                     │
-│                   ┌──────┐┌──────┐┌──────┐┌──────┐               │
-│                   │Blink ││ Gaze ││ Head ││Focus │               │
-│                   │Analyz││Track ││ Pose ││Score │               │
-│                   └──┬───┘└──┬───┘└──┬───┘└──┬───┘               │
-│                      │       │       │       │                    │
-│  ┌─────────────┐     │       │       │       │                    │
-│  │ video       │     │       │       │       │                    │
-│  │ + landmarks │─────┼───────┼───────┼───────┤                    │
-│  └─────────────┘     │       │       │       │                    │
-│        │             │       │       │       │                    │
-│        ▼             │       │       │       │                    │
-│  ┌───────────┐       │       │       │       │                    │
-│  │   rPPG    │       │       │       │       │                    │
-│  │  Analyzer │       │       │       │       │                    │
-│  └─────┬─────┘       │       │       │       │                    │
-│        │             │       │       │       │                    │
-│        ▼             │       │       │       │                    │
-│  ┌───────────┐       │       │       │       │                    │
-│  │    HRV    │       │       │       │       │                    │
-│  │  Analyzer │       │       │       │       │                    │
-│  └─────┬─────┘       │       │       │       │                    │
-│        │             │       │       │       │                    │
-│        └─────────────┴───────┴───────┴───────┘                    │
+│  ┌─────────────────┐                                              │
+│  │  PoseAnalyzer   │ ← poseLandmarks + faceDetected              │
+│  │  (v2.0.0)       │                                              │
+│  └────────┬────────┘                                              │
+│           │ poseStatus                                            │
+│           ▼                                                       │
+│  ┌─────────────────────────────────────────────────────┐          │
+│  │              faceDetected && landmarks?              │          │
+│  └──────┬──────────────────┬──────────────┬────────────┘          │
+│         │ YES              │ NO (preserve)│ NO (absent)           │
+│         ▼                  ▼              ▼                       │
+│  ┌─────────────┐   ┌────────────┐  ┌──────────────┐              │
+│  │ landmarks   │   │getWaiting  │  │ageBuffers()  │              │
+│  │ null check  │   │Result()    │  │+getEmptyResult│              │
+│  └─────────────┘   │(버퍼 유지) │  └──────────────┘              │
+│         │           └────────────┘                                │
+│         │──────┬──────┬──────┬──────┐                             │
+│         │      │      │      │      │                             │
+│         ▼      ▼      ▼      ▼      ▼                             │
+│     ┌──────┐┌──────┐┌──────┐┌──────┐┌──────┐                     │
+│     │Blink ││ Gaze ││ Head ││Focus ││ rPPG │                     │
+│     │Analyz││Track ││ Pose ││Score ││Analyz│                     │
+│     └──┬───┘└──┬───┘└──┬───┘└──┬───┘└──┬───┘                     │
+│        │       │       │       │       │                          │
+│        │       │       │       │       ▼                          │
+│        │       │       │       │  ┌───────────┐                   │
+│        │       │       │       │  │    HRV    │                   │
+│        │       │       │       │  │  Analyzer │                   │
+│        │       │       │       │  └─────┬─────┘                   │
+│        │       │       │       │        │                          │
+│        └───────┴───────┴───────┴────────┘                         │
 │                              │                                    │
 │                              ▼                                    │
 │                    ┌─────────────────┐                            │
-│                    │ SuperKiwiResult │                            │
+│                    │ SuperKiwiResult │ ← poseStatus 포함          │
 │                    └─────────────────┘                            │
 │                                                                   │
 └──────────────────────────────────────────────────────────────────┘
@@ -328,6 +396,7 @@ const overlapRatio = 0.5; // 50% 오버랩
 | EAR History | 30 | ~0.24 KB | 깜빡임 패턴 |
 | Gaze History | 30 | ~0.48 KB | 시선 안정성 |
 | Focus History | 100 | ~0.8 KB | 평균 점수 |
+| Pose Calibration | 30 | ~0.24 KB | 어깨 간격 캘리브레이션 |
 
 ### 순환 버퍼
 
@@ -343,6 +412,21 @@ class CircularBuffer<T> {
     this.buffer[this.head] = item;
     this.head = (this.head + 1) % this.buffer.length;
     this.size = Math.min(this.size + 1, this.buffer.length);
+  }
+}
+```
+
+### 버퍼 Aging (v2.0.0)
+
+사용자 부재(`user_absent`) 상태가 `bufferPreservationTimeout`(기본 5초) 이상 지속되면 stale 데이터를 정리합니다.
+
+```typescript
+// RPPGAnalyzer.removeOldData()
+removeOldData(cutoffTimestamp: number): void {
+  const cutoffIndex = this.timestamps.findIndex(t => t >= cutoffTimestamp);
+  if (cutoffIndex > 0) {
+    this.greenBuffer = this.greenBuffer.slice(cutoffIndex);
+    this.timestamps = this.timestamps.slice(cutoffIndex);
   }
 }
 ```

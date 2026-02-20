@@ -26,6 +26,9 @@ export {
   type FocusScoreResult,
   type Point3D,
   type Point2D,
+  type PoseLandmark,
+  type FaceOcclusionReason,
+  type PoseStatusResult,
 } from './SuperKiwiSDK';
 
 // Re-export the SDK as default for convenience

@@ -37,6 +37,7 @@ SuperKiwi SDK는 웹캠 영상에서 얼굴을 인식하고, MediaPipe의 468개
                                                    │  - gaze         │
                                                    │  - headPose     │
                                                    │  - focusScore   │
+                                                   │  - poseStatus   │
                                                    └─────────────────┘
 ```
 
@@ -50,6 +51,7 @@ SuperKiwi SDK는 웹캠 영상에서 얼굴을 인식하고, MediaPipe의 468개
 | **시선 추적** | 눈동자 위치 및 방향 벡터 추적 | ±5° 오차 |
 | **머리 자세** | pitch, yaw, roll 3축 회전 추정 | ±3° 오차 |
 | **집중도 점수** | 복합 지표 기반 집중 상태 판단 | 0-100 스케일 |
+| **포즈 분석** | Pose Landmarker 기반 얼굴 미감지 원인 분석 | 10가지 원인 |
 
 ### 1.3 시스템 요구사항
 
@@ -149,6 +151,7 @@ const { SuperKiwiSDK } = require('superkiwi-sdk');
     │              │              │          │         │
     ▼              ▼              ▼          ▼         ▼
  30fps        468 points     필터링      FFT/통계   SuperKiwiResult
+              + pose(33)     + 포즈 분석            + poseStatus
 ```
 
 ### 3.2 랜드마크 인덱스 맵
@@ -224,6 +227,7 @@ new SuperKiwiSDK(options?: SuperKiwiSDKOptions)
 |------|------|--------|------|
 | `fps` | number | 30 | 목표 프레임레이트 |
 | `rppgBufferSize` | number | 300 | rPPG 신호 버퍼 크기 (프레임 수) |
+| `bufferPreservationTimeout` | number | 5000 | user_absent 시 버퍼 보존 시간 (ms) |
 
 ```typescript
 const sdk = new SuperKiwiSDK({
@@ -234,17 +238,16 @@ const sdk = new SuperKiwiSDK({
 
 #### 메서드
 
-##### `process(video: HTMLVideoElement, landmarks: NormalizedLandmark[]): SuperKiwiResult`
+##### `processFrame(video, landmarks, timestamp?, poseLandmarks?): SuperKiwiResult`
 
 비디오 프레임과 랜드마크를 분석하여 생체 신호를 반환합니다.
 
 ```typescript
-const result = faceLandmarker.detectForVideo(video, timestamp);
+const detection = faceLandmarker.detectForVideo(video, timestamp);
+const landmarks = detection.faceLandmarks?.[0] ?? null;
 
-if (result.faceLandmarks && result.faceLandmarks.length > 0) {
-  const result = sdk.process(video, result.faceLandmarks[0]);
-  console.log(result);
-}
+// 포즈 데이터도 함께 전달 (optional)
+const result = sdk.processFrame(video, landmarks, timestamp, poseLandmarks);
 ```
 
 ##### `reset(): void`
@@ -259,14 +262,15 @@ sdk.reset();  // 측정 재시작 시 호출
 
 ```typescript
 interface SuperKiwiResult {
-  faceDetected: boolean;      // 얼굴 감지 여부
-  timestamp: number;          // 타임스탬프 (ms)
-  heartRate: HeartRateResult; // 심박수 데이터
-  hrv: HRVResult | null;      // HRV 데이터 (수집 완료 시)
-  blink: BlinkResult;         // 눈 깜빡임 데이터
-  gaze: GazeResult;           // 시선 추적 데이터
-  headPose: HeadPoseResult;   // 머리 자세 데이터
-  focusScore: FocusScoreResult; // 집중도 점수
+  faceDetected: boolean;
+  timestamp: number;
+  heartRate: HeartRateResult;
+  hrv: HRVResult | null;
+  blink: BlinkResult;
+  gaze: GazeResult;
+  headPose: HeadPoseResult;
+  focusScore: FocusScoreResult;
+  poseStatus: PoseStatusResult | null;  // v2.0.0 추가
 }
 ```
 
@@ -452,6 +456,49 @@ interface FocusScoreResult {
 | `focused` | 70-100 | 집중하고 있음 |
 | `distracted` | 40-69 | 주의가 분산됨 |
 | `away` | 0-39 | 자리 비움 또는 화면에서 벗어남 |
+
+#### PoseStatusResult (v2.0.0)
+
+```typescript
+interface PoseStatusResult {
+  poseDetected: boolean;          // 포즈 감지 여부
+  occlusionReason: FaceOcclusionReason; // 얼굴 미감지 원인
+  confidence: number;              // 감지 신뢰도 (0-1)
+  shouldPreserveBuffers: boolean;  // 버퍼 보존 여부
+}
+
+type FaceOcclusionReason =
+  | 'none' | 'head_turned' | 'looking_down' | 'looking_up'
+  | 'leaning_back' | 'leaning_forward'
+  | 'too_close' | 'too_far'
+  | 'user_absent' | 'unknown';
+```
+
+**활용 예시:**
+
+```typescript
+const { poseStatus } = result;
+
+if (poseStatus && !result.faceDetected) {
+  switch (poseStatus.occlusionReason) {
+    case 'head_turned':
+      showMessage('정면을 봐주세요');
+      break;
+    case 'looking_down':
+      showMessage('고개를 들어주세요');
+      break;
+    case 'too_close':
+      showMessage('카메라에서 조금 떨어져주세요');
+      break;
+    case 'too_far':
+      showMessage('카메라에 가까이 와주세요');
+      break;
+    case 'user_absent':
+      showMessage('사용자가 감지되지 않습니다');
+      break;
+  }
+}
+```
 
 ---
 
@@ -1423,6 +1470,6 @@ MIT License - 자유롭게 사용, 수정, 배포 가능
 
 ---
 
-**문서 버전**: 1.0.0
-**최종 업데이트**: 2026-01-06
+**문서 버전**: 2.0.0
+**최종 업데이트**: 2026-02-20
 **문의**: [GitHub Issues](https://github.com/excatt/SuperKiwiSDK/issues)

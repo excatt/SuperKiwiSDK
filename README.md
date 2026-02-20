@@ -38,6 +38,7 @@ MediaPipe 얼굴 랜드마크를 활용한 **비접촉 생체 신호 분석 SDK*
 | **Gaze Tracking** | 시선 방향 및 안정성 추적 | 90%+ |
 | **Head Pose** | Pitch, Yaw, Roll 머리 자세 추정 | ±5° |
 | **Focus Score** | 종합 집중도 점수 계산 (0-100) | - |
+| **Pose Detection** | MediaPipe Pose Landmarker 기반 얼굴 미감지 원인 분석 | 10가지 원인 |
 
 ### 주요 특징
 
@@ -46,6 +47,7 @@ MediaPipe 얼굴 랜드마크를 활용한 **비접촉 생체 신호 분석 SDK*
 - **경량화**: 단일 파일, 최소 의존성 (~18KB gzipped)
 - **TypeScript 지원**: 완벽한 타입 정의 제공
 - **프레임워크 무관**: React, Vue, Angular, Vanilla JS 모두 지원
+- **얼굴 미감지 원인 분석**: 고개 돌림, 숙임, 부재 등 10가지 원인 구분
 
 ---
 
@@ -238,10 +240,11 @@ const sdk = new SuperKiwiSDK(options?: SuperKiwiSDKOptions);
 | `maxHeartRate` | number | 180 | 최대 심박수 (BPM) |
 | `blinkThreshold` | number | 0.21 | 눈 깜빡임 EAR 임계값 |
 | `debug` | boolean | false | 디버그 로그 출력 |
+| `bufferPreservationTimeout` | number | 5000 | user_absent 시 버퍼 보존 시간 (ms) |
 
 #### Methods
 
-##### `processFrame(video, landmarks, timestamp?): SuperKiwiResult`
+##### `processFrame(video, landmarks, timestamp?, poseLandmarks?): SuperKiwiResult`
 
 비디오 프레임을 처리하고 생체 신호를 분석합니다.
 
@@ -249,7 +252,8 @@ const sdk = new SuperKiwiSDK(options?: SuperKiwiSDKOptions);
 const result = sdk.processFrame(
   video: HTMLVideoElement,    // 비디오 엘리먼트
   landmarks: Point3D[] | null, // 468개 얼굴 랜드마크 또는 null
-  timestamp?: number           // 타임스탬프 (ms), 생략시 Date.now()
+  timestamp?: number,          // 타임스탬프 (ms), 생략시 Date.now()
+  poseLandmarks?: PoseLandmark[] | null  // 포즈 랜드마크 (optional)
 );
 ```
 
@@ -284,7 +288,7 @@ sdk.reset();
 SDK 버전을 반환합니다.
 
 ```typescript
-console.log(SuperKiwiSDK.version); // "1.0.0"
+console.log(SuperKiwiSDK.version); // "2.0.0"
 ```
 
 ---
@@ -304,6 +308,7 @@ interface SuperKiwiResult {
   headPose: HeadPoseResult | null;    // 머리 자세
   focusScore: FocusScoreResult;       // 집중도 점수
   timestamp: number;                  // 분석 시각
+  poseStatus: PoseStatusResult | null; // 포즈 상태 (poseLandmarks 미제공 시 null)
 }
 ```
 
@@ -389,6 +394,45 @@ interface FocusScoreResult {
   faceDetected: boolean;   // 얼굴 감지 여부
   gazeStability: number;   // 시선 안정성 기여
   blinkStability: number;  // 깜빡임 안정성 기여
+}
+```
+
+#### PoseLandmark
+
+```typescript
+interface PoseLandmark {
+  x: number;
+  y: number;
+  z: number;
+  visibility: number;  // 가시성 (0-1)
+  presence: number;     // 존재 확률 (0-1)
+}
+```
+
+#### FaceOcclusionReason
+
+```typescript
+type FaceOcclusionReason =
+  | 'none'              // 얼굴 정상 감지
+  | 'head_turned'       // 고개 돌림
+  | 'looking_down'      // 고개 숙임
+  | 'looking_up'        // 고개 들림
+  | 'leaning_back'      // 뒤로 기댐
+  | 'leaning_forward'   // 앞으로 숙임
+  | 'too_close'         // 너무 가까움
+  | 'too_far'           // 너무 멀음
+  | 'user_absent'       // 사용자 부재
+  | 'unknown';          // 원인 불명
+```
+
+#### PoseStatusResult
+
+```typescript
+interface PoseStatusResult {
+  poseDetected: boolean;          // 포즈 감지 여부
+  occlusionReason: FaceOcclusionReason; // 얼굴 미감지 원인
+  confidence: number;              // 감지 신뢰도 (0-1)
+  shouldPreserveBuffers: boolean;  // 버퍼 보존 여부
 }
 ```
 
@@ -662,6 +706,23 @@ if (!landmarks) {
 }
 ```
 
+```typescript
+// Pose Landmarker로 원인 파악
+if (result.poseStatus) {
+  switch (result.poseStatus.occlusionReason) {
+    case 'head_turned':
+      console.log('고개를 돌리고 있습니다. 정면을 봐주세요.');
+      break;
+    case 'looking_down':
+      console.log('고개를 숙이고 있습니다.');
+      break;
+    case 'user_absent':
+      console.log('사용자가 자리를 비웠습니다.');
+      break;
+  }
+}
+```
+
 ### 성능 이슈
 
 ```typescript
@@ -723,7 +784,16 @@ MIT License - 자세한 내용은 [LICENSE](./LICENSE) 파일을 참조하세요
 
 ## Changelog
 
-### v2.0.0 (2026-01-06)
+### v2.0.0 (2026-02-20)
+
+- ✨ **Pose Landmarker 통합**: 얼굴 미감지 원인 분석 (10가지)
+- ✨ `PoseAnalyzer` 클래스 추가 (캘리브레이션 기반 자세/거리 판단)
+- ✨ `processFrame`에 `poseLandmarks` 파라미터 추가 (후방 호환)
+- ✨ `PoseStatusResult` 타입으로 얼굴 미감지 원인 및 신뢰도 제공
+- ✨ 버퍼 aging: user_absent 5초 초과 시 stale 데이터 자동 정리
+- ✨ `bufferPreservationTimeout` 옵션 추가
+
+### v1.0.0 (2026-01-06)
 
 - 🎉 최초 릴리즈
 - ✨ rPPG 심박수 측정

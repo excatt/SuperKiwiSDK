@@ -59,6 +59,8 @@ export interface SuperKiwiSDKOptions {
   blinkThreshold?: number;
   /** 디버그 모드 (기본값: false) */
   debug?: boolean;
+  /** user_absent 상태에서 버퍼 보존 시간 (ms, 기본값: 5000) */
+  bufferPreservationTimeout?: number;
 }
 
 /** 심박수 측정 결과 */
@@ -137,6 +139,36 @@ export interface FocusScoreResult {
   state: 'high' | 'medium' | 'low';
 }
 
+/** 포즈 랜드마크 (MediaPipe Pose Landmarker 출력 형식) */
+export interface PoseLandmark {
+  x: number;
+  y: number;
+  z: number;
+  visibility: number;
+  presence: number;
+}
+
+/** 얼굴 미감지 원인 */
+export type FaceOcclusionReason =
+  | 'none'
+  | 'head_turned'
+  | 'looking_down'
+  | 'looking_up'
+  | 'leaning_back'
+  | 'leaning_forward'
+  | 'too_close'
+  | 'too_far'
+  | 'user_absent'
+  | 'unknown';
+
+/** 포즈 상태 결과 */
+export interface PoseStatusResult {
+  poseDetected: boolean;
+  occlusionReason: FaceOcclusionReason;
+  confidence: number;
+  shouldPreserveBuffers: boolean;
+}
+
 /** 프레임 처리 결과 (전체) */
 export interface SuperKiwiResult {
   /** 타임스탬프 */
@@ -155,6 +187,8 @@ export interface SuperKiwiResult {
   headPose: HeadPoseResult;
   /** 집중도 점수 */
   focusScore: FocusScoreResult;
+  /** 포즈 분석 결과 (poseLandmarks 미제공 시 null) */
+  poseStatus: PoseStatusResult | null;
 }
 
 // ============================================================================
@@ -168,6 +202,7 @@ const DEFAULT_OPTIONS: Required<SuperKiwiSDKOptions> = {
   maxHeartRate: 180,
   blinkThreshold: 0.21,
   debug: false,
+  bufferPreservationTimeout: 5000,
 };
 
 // MediaPipe Face Mesh 랜드마크 인덱스
@@ -187,6 +222,14 @@ const LANDMARKS = {
   LEFT_EYE_OUTER: 33,
   RIGHT_EYE_OUTER: 263,
   FOREHEAD_TOP: 10,
+  // 포즈 랜드마크 인덱스
+  POSE: {
+    NOSE: 0,
+    LEFT_SHOULDER: 11,
+    RIGHT_SHOULDER: 12,
+    LEFT_HIP: 23,
+    RIGHT_HIP: 24,
+  },
 };
 
 // ============================================================================
@@ -443,6 +486,21 @@ class RPPGAnalyzer {
     return lowpassed;
   }
 
+  /**
+   * cutoff 이전의 오래된 데이터 제거 (버퍼 aging)
+   */
+  removeOldData(cutoffTimestamp: number): void {
+    const cutoffIndex = this.timestamps.findIndex((t) => t >= cutoffTimestamp);
+    if (cutoffIndex > 0) {
+      this.greenBuffer = this.greenBuffer.slice(cutoffIndex);
+      this.timestamps = this.timestamps.slice(cutoffIndex);
+    } else if (cutoffIndex === -1) {
+      // 모든 데이터가 cutoff 이전
+      this.greenBuffer = [];
+      this.timestamps = [];
+    }
+  }
+
   reset(): void {
     this.greenBuffer = [];
     this.timestamps = [];
@@ -608,6 +666,10 @@ class BlinkAnalyzer {
     };
   }
 
+  getBlinkCount(): number {
+    return this.blinkCount;
+  }
+
   private calculateBlinkRate(now: number): number {
     if (this.blinkHistory.length === 0) return 0;
 
@@ -737,6 +799,216 @@ class HeadPoseEstimator {
 }
 
 // ============================================================================
+// 포즈 분석기
+// ============================================================================
+
+class PoseAnalyzer {
+  private baselineShoulderDistance: number | null = null;
+  private calibrationFrameCount: number = 0;
+  private shoulderDistanceHistory: number[] = [];
+  private lastAbsentTimestamp: number | null = null;
+
+  private static readonly CALIBRATION_FRAMES = 30;
+  private static readonly MIN_POSE_LANDMARKS = 25;
+  private static readonly NOSE_VISIBILITY_THRESHOLD = 0.5;
+  private static readonly SHOULDER_CLOSE_RATIO = 1.4;
+  private static readonly SHOULDER_FAR_RATIO = 0.6;
+  private static readonly SHOULDER_LEAN_FORWARD_RATIO = 1.2;
+  private static readonly SHOULDER_LEAN_BACK_RATIO = 0.8;
+  private static readonly LOOKING_DOWN_RATIO = 1.15;
+  private static readonly LOOKING_UP_RATIO = 0.85;
+
+  /**
+   * 포즈 분석
+   */
+  analyze(
+    poseLandmarks: PoseLandmark[] | null | undefined,
+    faceDetected: boolean,
+    timestamp: number
+  ): PoseStatusResult {
+    // 얼굴이 정상 감지된 경우
+    if (faceDetected) {
+      this.lastAbsentTimestamp = null;
+      // 포즈 데이터 있으면 캘리브레이션 업데이트
+      if (poseLandmarks && poseLandmarks.length >= PoseAnalyzer.MIN_POSE_LANDMARKS) {
+        this.updateCalibration(poseLandmarks);
+      }
+      return {
+        poseDetected: true,
+        occlusionReason: 'none',
+        confidence: 1.0,
+        shouldPreserveBuffers: true,
+      };
+    }
+
+    // 포즈 랜드마크 없음 → user_absent
+    if (!poseLandmarks || poseLandmarks.length < PoseAnalyzer.MIN_POSE_LANDMARKS) {
+      if (this.lastAbsentTimestamp === null) {
+        this.lastAbsentTimestamp = timestamp;
+      }
+      return {
+        poseDetected: false,
+        occlusionReason: 'user_absent',
+        confidence: 0.9,
+        shouldPreserveBuffers: false,
+      };
+    }
+
+    // 포즈는 있지만 얼굴 미감지 → 원인 분석
+    this.lastAbsentTimestamp = null;
+    return this.analyzeOcclusion(poseLandmarks);
+  }
+
+  getLastAbsentTimestamp(): number | null {
+    return this.lastAbsentTimestamp;
+  }
+
+  private updateCalibration(poseLandmarks: PoseLandmark[]): void {
+    const shoulderDistance = this.getShoulderDistance(poseLandmarks);
+    if (shoulderDistance === null) return;
+
+    if (this.calibrationFrameCount < PoseAnalyzer.CALIBRATION_FRAMES) {
+      this.shoulderDistanceHistory.push(shoulderDistance);
+      this.calibrationFrameCount++;
+
+      if (this.calibrationFrameCount === PoseAnalyzer.CALIBRATION_FRAMES) {
+        // 중앙값을 baseline으로 설정
+        const sorted = [...this.shoulderDistanceHistory].sort((a, b) => a - b);
+        this.baselineShoulderDistance = sorted[Math.floor(sorted.length / 2)];
+      }
+    }
+  }
+
+  private analyzeOcclusion(poseLandmarks: PoseLandmark[]): PoseStatusResult {
+    const nose = poseLandmarks[LANDMARKS.POSE.NOSE];
+    const leftShoulder = poseLandmarks[LANDMARKS.POSE.LEFT_SHOULDER];
+    const rightShoulder = poseLandmarks[LANDMARKS.POSE.RIGHT_SHOULDER];
+
+    if (!nose || !leftShoulder || !rightShoulder) {
+      return {
+        poseDetected: true,
+        occlusionReason: 'unknown',
+        confidence: 0.3,
+        shouldPreserveBuffers: true,
+      };
+    }
+
+    const shouldersVisible =
+      leftShoulder.visibility > PoseAnalyzer.NOSE_VISIBILITY_THRESHOLD &&
+      rightShoulder.visibility > PoseAnalyzer.NOSE_VISIBILITY_THRESHOLD;
+
+    // 어깨 간격 기반 거리 판단
+    if (this.baselineShoulderDistance !== null && shouldersVisible) {
+      const currentDistance = this.getShoulderDistance(poseLandmarks);
+      if (currentDistance !== null) {
+        const ratio = currentDistance / this.baselineShoulderDistance;
+
+        if (ratio > PoseAnalyzer.SHOULDER_CLOSE_RATIO) {
+          return {
+            poseDetected: true,
+            occlusionReason: 'too_close',
+            confidence: clamp((ratio - PoseAnalyzer.SHOULDER_CLOSE_RATIO) * 2, 0.5, 1.0),
+            shouldPreserveBuffers: true,
+          };
+        }
+
+        if (ratio < PoseAnalyzer.SHOULDER_FAR_RATIO) {
+          return {
+            poseDetected: true,
+            occlusionReason: 'too_far',
+            confidence: clamp((PoseAnalyzer.SHOULDER_FAR_RATIO - ratio) * 2, 0.5, 1.0),
+            shouldPreserveBuffers: true,
+          };
+        }
+
+        if (ratio > PoseAnalyzer.SHOULDER_LEAN_FORWARD_RATIO) {
+          return {
+            poseDetected: true,
+            occlusionReason: 'leaning_forward',
+            confidence: clamp((ratio - PoseAnalyzer.SHOULDER_LEAN_FORWARD_RATIO) * 3, 0.5, 1.0),
+            shouldPreserveBuffers: true,
+          };
+        }
+
+        if (ratio < PoseAnalyzer.SHOULDER_LEAN_BACK_RATIO) {
+          return {
+            poseDetected: true,
+            occlusionReason: 'leaning_back',
+            confidence: clamp((PoseAnalyzer.SHOULDER_LEAN_BACK_RATIO - ratio) * 3, 0.5, 1.0),
+            shouldPreserveBuffers: true,
+          };
+        }
+      }
+    }
+
+    // nose visibility 낮음 + 어깨 보임 → head_turned
+    if (nose.visibility < PoseAnalyzer.NOSE_VISIBILITY_THRESHOLD && shouldersVisible) {
+      return {
+        poseDetected: true,
+        occlusionReason: 'head_turned',
+        confidence: clamp(1 - nose.visibility, 0.5, 1.0),
+        shouldPreserveBuffers: true,
+      };
+    }
+
+    // nose.y vs shoulder midpoint.y 비율로 위/아래 판단
+    if (shouldersVisible) {
+      const shoulderMidY = (leftShoulder.y + rightShoulder.y) / 2;
+      if (shoulderMidY > 0) {
+        const yRatio = nose.y / shoulderMidY;
+
+        if (yRatio > PoseAnalyzer.LOOKING_DOWN_RATIO) {
+          return {
+            poseDetected: true,
+            occlusionReason: 'looking_down',
+            confidence: clamp((yRatio - PoseAnalyzer.LOOKING_DOWN_RATIO) * 3, 0.5, 1.0),
+            shouldPreserveBuffers: true,
+          };
+        }
+
+        if (yRatio < PoseAnalyzer.LOOKING_UP_RATIO) {
+          return {
+            poseDetected: true,
+            occlusionReason: 'looking_up',
+            confidence: clamp((PoseAnalyzer.LOOKING_UP_RATIO - yRatio) * 3, 0.5, 1.0),
+            shouldPreserveBuffers: true,
+          };
+        }
+      }
+    }
+
+    return {
+      poseDetected: true,
+      occlusionReason: 'unknown',
+      confidence: 0.3,
+      shouldPreserveBuffers: true,
+    };
+  }
+
+  private getShoulderDistance(poseLandmarks: PoseLandmark[]): number | null {
+    const left = poseLandmarks[LANDMARKS.POSE.LEFT_SHOULDER];
+    const right = poseLandmarks[LANDMARKS.POSE.RIGHT_SHOULDER];
+
+    if (
+      !left || !right ||
+      left.visibility < PoseAnalyzer.NOSE_VISIBILITY_THRESHOLD ||
+      right.visibility < PoseAnalyzer.NOSE_VISIBILITY_THRESHOLD
+    ) {
+      return null;
+    }
+
+    return Math.sqrt(Math.pow(left.x - right.x, 2) + Math.pow(left.y - right.y, 2));
+  }
+
+  reset(): void {
+    this.baselineShoulderDistance = null;
+    this.calibrationFrameCount = 0;
+    this.shoulderDistanceHistory = [];
+    this.lastAbsentTimestamp = null;
+  }
+}
+
+// ============================================================================
 // 집중도 점수 계산기
 // ============================================================================
 
@@ -830,6 +1102,7 @@ export class SuperKiwiSDK {
   private gazeTracker: GazeTracker;
   private headPoseEstimator: HeadPoseEstimator;
   private focusCalculator: FocusScoreCalculator;
+  private poseAnalyzer: PoseAnalyzer;
   private lastHRV: HRVResult | null = null;
 
   constructor(options: SuperKiwiSDKOptions = {}) {
@@ -841,6 +1114,7 @@ export class SuperKiwiSDK {
     this.gazeTracker = new GazeTracker();
     this.headPoseEstimator = new HeadPoseEstimator();
     this.focusCalculator = new FocusScoreCalculator();
+    this.poseAnalyzer = new PoseAnalyzer();
 
     if (this.options.debug) {
       console.log('[SuperKiwiSDK] Initialized with options:', this.options);
@@ -853,69 +1127,101 @@ export class SuperKiwiSDK {
    * @param video - HTML Video 요소
    * @param landmarks - MediaPipe 얼굴 랜드마크 (468개)
    * @param timestamp - 타임스탬프 (ms)
+   * @param poseLandmarks - MediaPipe 포즈 랜드마크 (optional)
    * @returns 생체 측정 결과
    */
   processFrame(
     video: HTMLVideoElement,
     landmarks: Point3D[] | null,
-    timestamp: number = Date.now()
+    timestamp: number = Date.now(),
+    poseLandmarks?: PoseLandmark[] | null
   ): SuperKiwiResult {
     const faceDetected = landmarks !== null && landmarks.length >= 468;
 
-    // 기본 결과 (얼굴 미감지 시)
-    if (!faceDetected || !landmarks) {
-      return this.getEmptyResult(timestamp);
+    // 포즈 분석 (poseLandmarks 제공 시에만)
+    const poseStatus = poseLandmarks !== undefined
+      ? this.poseAnalyzer.analyze(poseLandmarks, faceDetected, timestamp)
+      : null;
+
+    // 얼굴 정상 감지 → 6개 분석기 실행
+    if (faceDetected && landmarks) {
+      // 1. rPPG 심박수 측정
+      const rgb = this.rppgAnalyzer.extractROISignal(video, landmarks);
+      if (rgb) {
+        this.rppgAnalyzer.addSignal(rgb.g, timestamp);
+      }
+      const heartRate = this.rppgAnalyzer.calculateHeartRate();
+
+      // 2. HRV 분석
+      if (heartRate.rrInterval && heartRate.rrInterval > 0) {
+        this.hrvAnalyzer.addRRInterval(heartRate.rrInterval);
+      }
+      const hrv = this.hrvAnalyzer.calculateHRV();
+      if (hrv) {
+        this.lastHRV = hrv;
+      }
+
+      // 3. 눈 깜빡임 분석
+      const blink = this.blinkAnalyzer.process(landmarks, timestamp);
+
+      // 4. 시선 추적
+      const gaze = this.gazeTracker.analyze(landmarks);
+
+      // 5. 머리 자세
+      const headPose = this.headPoseEstimator.estimate(landmarks);
+
+      // 6. 집중도 점수
+      const focusScore = this.focusCalculator.calculate(
+        faceDetected,
+        gaze.stability,
+        blink.blinkRate,
+        timestamp
+      );
+
+      return {
+        timestamp,
+        faceDetected,
+        heartRate,
+        hrv: this.lastHRV,
+        blink,
+        gaze,
+        headPose,
+        focusScore,
+        poseStatus,
+      };
     }
 
-    // 1. rPPG 심박수 측정
-    const rgb = this.rppgAnalyzer.extractROISignal(video, landmarks);
-    if (rgb) {
-      this.rppgAnalyzer.addSignal(rgb.g, timestamp);
+    // 얼굴 미감지 + 포즈 분석 있음 → 원인별 분기
+    if (poseStatus) {
+      if (poseStatus.shouldPreserveBuffers) {
+        // 고개 돌림, 숙임 등 → 버퍼 유지, 기존 heartRate로 계산 시도
+        return this.getWaitingResult(timestamp, poseStatus);
+      }
+
+      // user_absent → timeout 체크
+      const absentStart = this.poseAnalyzer.getLastAbsentTimestamp();
+      if (absentStart !== null) {
+        const absentDuration = timestamp - absentStart;
+        if (absentDuration > this.options.bufferPreservationTimeout) {
+          this.ageBuffers(timestamp);
+          return this.getEmptyResult(timestamp, poseStatus);
+        }
+      }
+      // timeout 미초과 → 아직 기다림
+      return this.getWaitingResult(timestamp, poseStatus);
     }
-    const heartRate = this.rppgAnalyzer.calculateHeartRate();
 
-    // 2. HRV 분석
-    if (heartRate.rrInterval && heartRate.rrInterval > 0) {
-      this.hrvAnalyzer.addRRInterval(heartRate.rrInterval);
-    }
-    const hrv = this.hrvAnalyzer.calculateHRV();
-    if (hrv) {
-      this.lastHRV = hrv;
-    }
-
-    // 3. 눈 깜빡임 분석
-    const blink = this.blinkAnalyzer.process(landmarks, timestamp);
-
-    // 4. 시선 추적
-    const gaze = this.gazeTracker.analyze(landmarks);
-
-    // 5. 머리 자세
-    const headPose = this.headPoseEstimator.estimate(landmarks);
-
-    // 6. 집중도 점수
-    const focusScore = this.focusCalculator.calculate(
-      faceDetected,
-      gaze.stability,
-      blink.blinkRate,
-      timestamp
-    );
-
-    return {
-      timestamp,
-      faceDetected,
-      heartRate,
-      hrv: this.lastHRV,
-      blink,
-      gaze,
-      headPose,
-      focusScore,
-    };
+    // poseLandmarks 미제공 (기존 호환) → 기존 동작
+    return this.getEmptyResult(timestamp, null);
   }
 
   /**
-   * 빈 결과 반환 (얼굴 미감지 시)
+   * 빈 결과 반환 (얼굴 미감지 + 버퍼 정리 후)
    */
-  private getEmptyResult(timestamp: number): SuperKiwiResult {
+  private getEmptyResult(
+    timestamp: number,
+    poseStatus: PoseStatusResult | null = null
+  ): SuperKiwiResult {
     return {
       timestamp,
       faceDetected: false,
@@ -932,7 +1238,7 @@ export class SuperKiwiSDK {
         rightEar: 0,
         isBlinking: false,
         blinkRate: 0,
-        blinkCount: 0,
+        blinkCount: this.blinkAnalyzer.getBlinkCount(),
       },
       gaze: {
         center: { x: 0.5, y: 0.5 },
@@ -947,7 +1253,60 @@ export class SuperKiwiSDK {
         blinkScore: 0,
         state: 'low',
       },
+      poseStatus,
     };
+  }
+
+  /**
+   * 대기 결과 반환 (얼굴 미감지이나 버퍼 유지)
+   * 기존 rPPG 버퍼로 heartRate 계산을 시도하고, blink/gaze/headPose는 빈 값
+   */
+  private getWaitingResult(
+    timestamp: number,
+    poseStatus: PoseStatusResult
+  ): SuperKiwiResult {
+    const heartRate = this.rppgAnalyzer.calculateHeartRate();
+
+    return {
+      timestamp,
+      faceDetected: false,
+      heartRate,
+      hrv: this.lastHRV,
+      blink: {
+        ear: 0,
+        leftEar: 0,
+        rightEar: 0,
+        isBlinking: false,
+        blinkRate: 0,
+        blinkCount: this.blinkAnalyzer.getBlinkCount(),
+      },
+      gaze: {
+        center: { x: 0.5, y: 0.5 },
+        vector: { x: 0, y: 0, distance: 0 },
+        stability: 0,
+      },
+      headPose: { pitch: 0, yaw: 0, roll: 0 },
+      focusScore: {
+        score: 0,
+        faceScore: 0,
+        gazeScore: 0,
+        blinkScore: 0,
+        state: 'low',
+      },
+      poseStatus,
+    };
+  }
+
+  /**
+   * 오래된 버퍼 데이터 정리 (장기 부재 시)
+   */
+  private ageBuffers(timestamp: number): void {
+    const cutoff = timestamp - this.options.bufferPreservationTimeout;
+    this.rppgAnalyzer.removeOldData(cutoff);
+
+    if (this.options.debug) {
+      console.log('[SuperKiwiSDK] Aged buffers, cutoff:', cutoff);
+    }
   }
 
   /**
@@ -972,6 +1331,7 @@ export class SuperKiwiSDK {
     this.hrvAnalyzer.reset();
     this.blinkAnalyzer.reset();
     this.focusCalculator.reset();
+    this.poseAnalyzer.reset();
     this.lastHRV = null;
 
     if (this.options.debug) {
@@ -983,7 +1343,7 @@ export class SuperKiwiSDK {
    * SDK 버전 정보
    */
   static get version(): string {
-    return '1.0.0';
+    return '2.0.0';
   }
 
   /**
@@ -992,7 +1352,7 @@ export class SuperKiwiSDK {
   static get info(): { name: string; version: string; description: string } {
     return {
       name: 'SuperKiwi SDK',
-      version: '1.0.0',
+      version: '2.0.0',
       description: '비접촉 생체 신호 분석 SDK - 심박수, HRV, 눈 깜빡임, 시선, 집중도 측정',
     };
   }

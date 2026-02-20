@@ -14,6 +14,34 @@
 
 ---
 
+## [2.0.0] - 2026-02-20
+
+### Added
+- ✨ **Pose Landmarker 통합**
+  - MediaPipe Pose Landmarker 기반 얼굴 미감지 원인 분석
+  - 10가지 FaceOcclusionReason: none, head_turned, looking_down, looking_up, leaning_back, leaning_forward, too_close, too_far, user_absent, unknown
+  - PoseAnalyzer 클래스 (캘리브레이션 기반 자세/거리 판단)
+  - PoseStatusResult 타입 (poseDetected, occlusionReason, confidence, shouldPreserveBuffers)
+- ✨ **버퍼 Aging**
+  - user_absent 상태 지속 시 stale rPPG 데이터 자동 정리
+  - bufferPreservationTimeout 옵션 추가 (기본 5000ms)
+  - RPPGAnalyzer.removeOldData() 메서드 추가
+- ✨ **새 타입 수출**
+  - PoseLandmark, FaceOcclusionReason, PoseStatusResult
+
+### Changed
+- processFrame() 시그니처에 4번째 optional 파라미터 `poseLandmarks` 추가
+- SuperKiwiResult에 `poseStatus: PoseStatusResult | null` 필드 추가
+- SuperKiwiSDKOptions에 `bufferPreservationTimeout` 옵션 추가
+- getEmptyResult()에서 blinkCount를 실제 누적값으로 반환
+
+### Technical
+- PoseAnalyzer: 30프레임 캘리브레이션으로 어깨 간격 baseline 설정
+- 얼굴 미감지 시 3단계 분기: 정상감지 → 원인분석(버퍼유지) → 장기부재(버퍼정리)
+- 후방 호환성 유지: poseLandmarks 미제공 시 기존 동작과 동일
+
+---
+
 ## [1.0.0] - 2026-01-06
 
 ### Added
@@ -72,7 +100,7 @@
 
 - `1.0.0` → `1.0.1`: 버그 수정
 - `1.0.0` → `1.1.0`: 새 기능 추가 (예: 감정 인식)
-- `1.0.0` → `2.0.0`: API 변경 (예: processFrame 시그니처 변경)
+- `1.0.0` → `2.0.0`: API 변경 (예: processFrame 시그니처 변경, Pose Landmarker 통합)
 
 ---
 
@@ -96,5 +124,6 @@ npm run release:major
 
 ---
 
-[Unreleased]: https://github.com/excatt/SuperKiwiSDK/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/excatt/SuperKiwiSDK/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/excatt/SuperKiwiSDK/compare/v1.0.0...v2.0.0
 [1.0.0]: https://github.com/excatt/SuperKiwiSDK/releases/tag/v1.0.0
