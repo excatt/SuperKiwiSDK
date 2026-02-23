@@ -806,7 +806,7 @@ MIT License - 자세한 내용은 [LICENSE](./LICENSE) 파일을 참조하세요
 ---
 
 <div align="center">
-  <p>Made with ❤️ by SuperKiwi Team</p>
+  <p>Made with ❤️ by LEEBI</p>
   <p>
     <a href="https://github.com/excatt/SuperKiwiSDK/issues">Report Bug</a>
     ·
